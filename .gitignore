@@ -1,0 +1,8 @@
+.env
+*.key
+*.pem
+config.json
+.venv/
+stars.py
+__pycache__
+tok.txt

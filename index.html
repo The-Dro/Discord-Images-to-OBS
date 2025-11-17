@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            width: 1920px;
+            height: 1080px;
+            position: relative;
+            background-color: #000;
+            overflow: hidden;
+        }
+        
+        #imageContainer {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: flex-end;
+            align-items: flex-end;
+        }
+        
+        .discord-card {
+            background-color: #2f3136;
+            border-radius: 8px;
+            padding: 16px;
+            max-width: 500px;
+            min-width: 200px;
+            opacity: 0;
+            transition: opacity 4s ease-in-out;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+        
+        .discord-card.fade-in {
+            opacity: 1;
+        }
+        
+        .discord-card.fade-out {
+            opacity: 0;
+        }
+        
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            gap: 8px;
+        }
+        
+        .author-name {
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        
+        .timestamp {
+            color: #72767d;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 12px;
+        }
+        
+        .card-image {
+            border-radius: 4px;
+            max-width: 100%;
+            max-height: 300px;
+            min-width: 200px;
+            min-height: 100px;
+            width: auto;
+            height: auto;
+            display: block;
+            opacity: 1;
+        }
+        
+        #replayButton {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background-color: rgba(88, 101, 242, 0.9);
+            color: white;
+            border: 2px solid rgba(88, 101, 242, 1);
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            opacity: 1 !important;
+            visibility: visible !important;
+            display: block !important;
+            transition: opacity 0.3s ease, background-color 0.3s ease;
+            z-index: 9999;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+        }
+        
+        #replayButton:hover {
+            opacity: 1;
+            background-color: rgba(88, 101, 242, 1);
+        }
+        
+        #replayButton:active {
+            background-color: rgba(71, 82, 196, 1);
+        }
+        
+        #replayButton:disabled {
+            opacity: 0.5;
+            background-color: rgba(128, 128, 128, 0.5);
+            border-color: rgba(128, 128, 128, 0.5);
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <button id="replayButton" title="Replay last image">Replay</button>
+    <div id="imageContainer">
+        <div id="discordCard" class="discord-card">
+            <div class="card-header">
+                <span id="authorName" class="author-name"></span>
+                <span id="timestamp" class="timestamp"></span>
+            </div>
+            <img id="displayImage" class="card-image" src="" alt="Image">
+        </div>
+    </div>
+
+    <script>
+        const imageElement = document.getElementById('displayImage');
+        const discordCard = document.getElementById('discordCard');
+        const authorNameElement = document.getElementById('authorName');
+        const timestampElement = document.getElementById('timestamp');
+        const replayButton = document.getElementById('replayButton');
+        const JSON_FILE = 'image_data.json';
+        const POLL_INTERVAL = 3000; // Check every 3 seconds
+        const FADE_IN_DURATION = 4000; // 4 seconds fade in
+        const FADE_OUT_DURATION = 4000; // 4 seconds fade out
+        const DISPLAY_DURATION = 4000; // Display for 4 seconds before fading out
+        
+        let currentImageUrl = '';
+        let currentTimestamp = 0;
+        let lastImageData = null; // Store the last image data for replay
+        let isAnimating = false;
+        let animationTimeout = null;
+        
+        // Format timestamp to Discord-like format
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp * 1000);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+            
+            if (diffMins < 1) {
+                return 'just now';
+            } else if (diffMins < 60) {
+                return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+            } else if (diffHours < 24) {
+                return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+            } else if (diffDays < 7) {
+                return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+            } else {
+                // Format as date
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const month = months[date.getMonth()];
+                const day = date.getDate();
+                const year = date.getFullYear();
+                const hours = date.getHours();
+                const minutes = date.getMinutes();
+                const ampm = hours >= 12 ? 'PM' : 'AM';
+                const displayHours = hours % 12 || 12;
+                const displayMinutes = minutes.toString().padStart(2, '0');
+                
+                if (year === now.getFullYear()) {
+                    return `${month} ${day} at ${displayHours}:${displayMinutes} ${ampm}`;
+                } else {
+                    return `${month} ${day}, ${year} at ${displayHours}:${displayMinutes} ${ampm}`;
+                }
+            }
+        }
+        
+        async function checkForNewImage() {
+            try {
+                // Add cache-busting query parameter to prevent browser caching
+                const response = await fetch(`${JSON_FILE}?t=${Date.now()}`);
+                if (!response.ok) {
+                    console.log('No image data file found yet (status:', response.status, ')');
+                    return;
+                }
+                
+                const data = await response.json();
+                console.log('Fetched image data:', data.url ? 'Image found' : 'No URL');
+                
+                // Store image data for replay if it exists (even if not new)
+                if (data.url && !lastImageData) {
+                    lastImageData = data;
+                    updateReplayButton();
+                }
+                
+                // Check if this is a new image (different URL or newer timestamp)
+                // Also show image on initial load if currentImageUrl is empty
+                if (data.url && (data.url !== currentImageUrl || data.timestamp > currentTimestamp || !currentImageUrl)) {
+                    if (data.url !== currentImageUrl || !currentImageUrl) {
+                        console.log('New image detected:', data.url);
+                        // New image detected - cancel any ongoing animation
+                        if (animationTimeout) {
+                            clearTimeout(animationTimeout);
+                        }
+                        // Reset animation state
+                        isAnimating = false;
+                        discordCard.classList.remove('fade-in', 'fade-out');
+                        
+                        currentImageUrl = data.url;
+                        currentTimestamp = data.timestamp;
+                        lastImageData = data; // Store for replay
+                        updateReplayButton();
+                        showImage(data);
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking for new image:', error);
+            }
+        }
+        
+        function showImage(imageData) {
+            const url = imageData.url;
+            const author = imageData.author || 'Unknown';
+            const messageTimestamp = imageData.message_timestamp || imageData.timestamp;
+            
+            console.log('Showing image:', url, 'from', author);
+            
+            if (isAnimating) {
+                // Cancel previous animation
+                if (animationTimeout) {
+                    clearTimeout(animationTimeout);
+                }
+            }
+            
+            isAnimating = true;
+            
+            // Update author and timestamp
+            authorNameElement.textContent = author;
+            timestampElement.textContent = formatTimestamp(messageTimestamp);
+            
+            // Function to start the animation
+            function startAnimation() {
+                // Remove any existing classes
+                discordCard.classList.remove('fade-in', 'fade-out');
+                
+                // Force reflow to ensure the class removal is processed
+                void discordCard.offsetWidth;
+                
+                // Fade in
+                discordCard.classList.add('fade-in');
+                console.log('Fade in started');
+                
+                // After fade in completes, wait, then fade out
+                animationTimeout = setTimeout(() => {
+                    console.log('Starting fade out');
+                    discordCard.classList.remove('fade-in');
+                    discordCard.classList.add('fade-out');
+                    
+                    // After fade out completes, reset for next cycle
+                    animationTimeout = setTimeout(() => {
+                        console.log('Animation cycle complete');
+                        discordCard.classList.remove('fade-out');
+                        isAnimating = false;
+                        animationTimeout = null;
+                    }, FADE_OUT_DURATION);
+                }, FADE_IN_DURATION + DISPLAY_DURATION);
+            }
+            
+            // Set the image source
+            imageElement.src = url;
+            
+            // Wait for image to load before starting animation
+            if (imageElement.complete) {
+                // Image is already loaded (cached)
+                startAnimation();
+            } else {
+                // Wait for image to load
+                imageElement.onload = startAnimation;
+                imageElement.onerror = function() {
+                    console.error('Failed to load image:', url);
+                    isAnimating = false;
+                };
+            }
+        }
+        
+        // Replay button functionality
+        function handleReplayClick(e) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            
+            if (lastImageData) {
+                console.log('Replay button clicked, replaying last image:', lastImageData.url);
+                
+                // Cancel any ongoing animation
+                if (animationTimeout) {
+                    clearTimeout(animationTimeout);
+                    animationTimeout = null;
+                }
+                
+                // Reset animation state
+                isAnimating = false;
+                discordCard.classList.remove('fade-in', 'fade-out');
+                
+                // Reset current image URL so it will trigger animation
+                currentImageUrl = '';
+                
+                // Temporarily disable button during animation
+                replayButton.disabled = true;
+                
+                // Small delay to ensure state is reset
+                setTimeout(() => {
+                    // Show the last image
+                    showImage(lastImageData);
+                    
+                    // Re-enable button after animation completes
+                    setTimeout(() => {
+                        replayButton.disabled = false;
+                        console.log('Replay animation complete, button re-enabled');
+                    }, FADE_IN_DURATION + DISPLAY_DURATION + FADE_OUT_DURATION + 100);
+                }, 50);
+            } else {
+                console.log('No image to replay yet');
+            }
+        }
+        
+        // Attach event listener
+        replayButton.addEventListener('click', handleReplayClick);
+        // Also set onclick as backup
+        replayButton.onclick = handleReplayClick;
+        
+        // Update replay button state
+        function updateReplayButton() {
+            replayButton.disabled = !lastImageData;
+        }
+        
+        // Function to show image immediately and start fade animation (for initial load)
+        async function showInitialImage() {
+            try {
+                const response = await fetch(`${JSON_FILE}?t=${Date.now()}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.url) {
+                        console.log('Initial image found, showing with animation');
+                        lastImageData = data;
+                        currentImageUrl = data.url;
+                        currentTimestamp = data.timestamp;
+                        
+                        // Use the showImage function to trigger full animation cycle
+                        showImage(data);
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading initial image:', error);
+            }
+        }
+        
+        // Start polling for new images
+        setInterval(checkForNewImage, POLL_INTERVAL);
+        
+        // Show initial image if available, then start polling
+        showInitialImage().then(() => {
+            // Check for new images after initial load
+            checkForNewImage();
+        });
+        
+        // Initialize replay button state
+        updateReplayButton();
+        
+        // Ensure replay button is visible and clickable
+        console.log('Replay button element:', replayButton);
+        console.log('Replay button disabled:', replayButton.disabled);
+        console.log('Replay button has lastImageData:', !!lastImageData);
+        replayButton.style.display = 'block';
+        replayButton.style.visibility = 'visible';
+        replayButton.style.opacity = '1';
+        replayButton.style.pointerEvents = 'auto';
+    </script>
+</body>
+</html>
